@@ -1,5 +1,5 @@
 {
-  "name": "spotifymod-api",
+  "name": "spotifyMod-api",
   "version": "1.0.0",
   "description": "Spotify Mod API",
   "scripts": {
@@ -7,9 +7,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12",
-    "node-fetch": "^2.6.9",
-    "puppeteer": "^21.0.0"
+    "cheerio": "^1.0.0-rc.12"
   },
   "engines": {
     "node": ">=18"
