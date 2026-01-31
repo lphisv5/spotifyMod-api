@@ -121,130 +121,122 @@ async function extractDownloadLink(pageUrl) {
     }
     
     // Step 5: Parse หน้าเว็บเพื่อหาลิงก์ดาวน์โหลดจริง
-    console.log(`[STEP 5] Parsing download page...`);
+    console.log(`[STEP 5] Parsing download page for APK link...`);
     const $$ = cheerio.load(followResponse.data);
     
     let directLink = null;
     
-    // 1. หาลิงก์จาก download button ที่มี ID เฉพาะ
-    console.log(`[STEP 5.1] Searching for download button with ID...`);
-    const downloadButton = $$('a#download-loaded-link, a.download, a[id*="download"]').first();
-    const buttonHref = downloadButton.attr('href');
+    // 1. หาลิงก์จาก download button ที่มี ID = "download-loaded-link"
+    console.log(`[STEP 5.1] Searching for #download-loaded-link button...`);
+    const downloadButton = $$('#download-loaded-link');
     
-    if (buttonHref && buttonHref.includes('.apk')) {
-      console.log(`[STEP 5.1] Found APK link in download button: ${buttonHref}`);
-      directLink = buttonHref;
+    if (downloadButton.length > 0) {
+      const buttonHref = downloadButton.attr('href');
+      console.log(`[STEP 5.1] Found download button, href: ${buttonHref}`);
+      
+      if (buttonHref && (buttonHref.includes('.apk') || buttonHref.includes('cloud') || buttonHref.includes('9mod'))) {
+        directLink = buttonHref;
+        console.log(`[STEP 5.1] Successfully extracted APK link from download button: ${directLink}`);
+      } else {
+        console.log(`[STEP 5.1] Download button found but href does not contain APK link`);
+      }
     } else {
-      console.log(`[STEP 5.1] No download button found or button has no APK link`);
+      console.log(`[STEP 5.1] Download button #download-loaded-link not found`);
     }
     
-    // 2. หาลิงก์จาก <a> tag ที่มี .apk (fallback)
+    // 2. Fallback: หาจากปุ่มที่มี class "download"
     if (!directLink) {
-      console.log(`[STEP 5.2] Searching for APK links in <a> tags...`);
+      console.log(`[STEP 5.2] Searching for buttons with class "download"...`);
+      $$('a.download, a.btn.download').each((i, el) => {
+        const href = $$(el).attr('href');
+        if (href && (href.includes('.apk') || href.includes('cloud') || href.includes('9mod'))) {
+          directLink = href;
+          console.log(`[STEP 5.2] Found APK link in download button: ${directLink}`);
+          return false; // หยุด loop
+        }
+      });
+    }
+    
+    // 3. Fallback: หาลิงก์จาก <a> tag ทั้งหมดที่มี .apk
+    if (!directLink) {
+      console.log(`[STEP 5.3] Searching for APK links in all anchor tags...`);
       const excludedDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com', 'instagram.com'];
       
       $$('a').each((i, el) => {
         const href = $$(el).attr('href');
         if (href && href.includes('.apk')) {
-          // ตรวจสอบว่าไม่ใช่ลิงก์ที่ไม่ต้องการ
           const isExcluded = excludedDomains.some(domain => href.includes(domain));
           
           if (!isExcluded) {
-            console.log(`[STEP 5.2] Found APK link: ${href}`);
+            console.log(`[STEP 5.3] Found APK link: ${href}`);
             
-            // ให้ความสำคัญกับลิงก์ที่มี cloud หรือ 9mod
             if (href.includes('cloud') || href.includes('9mod')) {
               directLink = href;
-              console.log(`[STEP 5.2] Selected cloud/9mod link: ${href}`);
-              return false; // หยุด loop
+              console.log(`[STEP 5.3] Selected cloud/9mod link: ${href}`);
+              return false;
             } else if (!directLink) {
-              directLink = href; // เก็บเป็น fallback
+              directLink = href;
             }
           } else {
-            console.log(`[STEP 5.2] Excluded link (unwanted domain): ${href}`);
+            console.log(`[STEP 5.3] Excluded link (unwanted domain): ${href}`);
           }
         }
       });
     }
     
-    // 3. หาจาก onclick, data-href, หรือ attributes อื่นๆ
+    // 4. หาจาก data-href attribute (base64 encoded URL)
     if (!directLink) {
-      console.log(`[STEP 5.3] Searching in element attributes...`);
-      $$('[onclick], [data-href], [data-download], [data-url]').each((i, el) => {
-        const onClick = $$(el).attr('onclick') || '';
-        const dataHref = $$(el).attr('data-href') || '';
-        const dataDownload = $$(el).attr('data-download') || '';
-        const dataUrl = $$(el).attr('data-url') || '';
-        
-        const combined = onClick + dataHref + dataDownload + dataUrl;
-        const apkMatch = combined.match(/(https?:\/\/[^\s"']+\.apk[^\s"']*)/);
-        
-        if (apkMatch) {
-          directLink = apkMatch[1];
-          console.log(`[STEP 5.3] Found APK in attributes: ${directLink}`);
-          return false;
+      console.log(`[STEP 5.4] Searching in data-href attributes...`);
+      $$('[data-href]').each((i, el) => {
+        const dataHref = $$(el).attr('data-href');
+        if (dataHref) {
+          try {
+            // ลอง decode base64
+            const decoded = Buffer.from(dataHref, 'base64').toString('utf-8');
+            console.log(`[STEP 5.4] Decoded data-href: ${decoded}`);
+            
+            if (decoded.includes('.apk') || decoded.includes('cloud') || decoded.includes('9mod')) {
+              directLink = decoded;
+              console.log(`[STEP 5.4] Found APK link in data-href: ${directLink}`);
+              return false;
+            }
+          } catch (error) {
+            console.log(`[STEP 5.4] Failed to decode data-href: ${error.message}`);
+          }
         }
       });
     }
     
-    // 4. หาจาก JavaScript code
+    // 5. หาจาก JavaScript code
     if (!directLink) {
-      console.log(`[STEP 5.4] Searching in JavaScript code...`);
+      console.log(`[STEP 5.5] Searching in JavaScript code...`);
       const excludedDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com'];
       
       $$('script').each((i, el) => {
         const scriptContent = $$(el).html() || '';
-        
-        // หา URL ที่มี .apk
         const apkMatches = scriptContent.match(/(https?:\/\/[^\s"']+\.apk[^\s"']*)/g);
         
         if (apkMatches && apkMatches.length > 0) {
-          console.log(`[STEP 5.4] Found ${apkMatches.length} APK links in scripts`);
-          
-          // กรองลิงก์ที่ไม่ต้องการออก
           const validLinks = apkMatches.filter(link => {
             return !excludedDomains.some(domain => link.includes(domain));
           });
           
           if (validLinks.length > 0) {
-            // ให้ความสำคัญกับลิงก์ที่มี cloud หรือ 9mod
             const cloudLink = validLinks.find(link => link.includes('cloud') || link.includes('9mod'));
-            if (cloudLink) {
-              directLink = cloudLink;
-              console.log(`[STEP 5.4] Selected cloud/9mod link: ${directLink}`);
-            } else {
-              directLink = validLinks[0];
-              console.log(`[STEP 5.4] Selected first valid APK link: ${directLink}`);
-            }
+            directLink = cloudLink || validLinks[0];
+            console.log(`[STEP 5.5] Found APK in JavaScript: ${directLink}`);
             return false;
-          } else {
-            console.log(`[STEP 5.4] All APK links were filtered out as unwanted`);
           }
         }
       });
     }
     
-    // 5. หาจาก meta tags
-    if (!directLink) {
-      console.log(`[STEP 5.5] Searching in meta tags...`);
-      const metaUrl = $$('meta[property="og:url"]').attr('content') || 
-                      $$('meta[name="download-url"]').attr('content');
-      
-      if (metaUrl && metaUrl.includes('.apk')) {
-        directLink = metaUrl;
-        console.log(`[STEP 5.5] Found APK in meta tags: ${directLink}`);
-      }
-    }
-    
-    // 6. ถ้ายังหาไม่เจอ ลองสร้างลิงก์จาก pattern
+    // 6. ลองสร้างลิงก์จาก pattern
     if (!directLink) {
       console.log(`[STEP 5.6] Attempting to construct download URL...`);
-      
-      // Pattern ที่เป็นไปได้: https://cloud.9mod.space/Spotify/Spotify%20vX.X.X.X%20(Premium).apk
       const constructedUrl = `https://cloud.9mod.space/Spotify/Spotify%20v${version}%20(Premium).apk`;
       console.log(`[STEP 5.6] Constructed URL: ${constructedUrl}`);
       
-      // ลองตรวจสอบว่า URL นี้มีอยู่จริงหรือไม่
       try {
         const headResponse = await axios.head(constructedUrl, { 
           headers, 
