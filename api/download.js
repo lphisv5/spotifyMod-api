@@ -126,36 +126,50 @@ async function extractDownloadLink(pageUrl) {
     
     let directLink = null;
     
-    // 1. หาลิงก์จาก <a> tag ที่มี .apk
-    console.log(`[STEP 5.1] Searching for APK links in <a> tags...`);
-    const excludedDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com', 'instagram.com'];
+    // 1. หาลิงก์จาก download button ที่มี ID เฉพาะ
+    console.log(`[STEP 5.1] Searching for download button with ID...`);
+    const downloadButton = $$('a#download-loaded-link, a.download, a[id*="download"]').first();
+    const buttonHref = downloadButton.attr('href');
     
-    $$('a').each((i, el) => {
-      const href = $$(el).attr('href');
-      if (href && href.includes('.apk')) {
-        // ตรวจสอบว่าไม่ใช่ลิงก์ที่ไม่ต้องการ
-        const isExcluded = excludedDomains.some(domain => href.includes(domain));
-        
-        if (!isExcluded) {
-          console.log(`[STEP 5.1] Found APK link: ${href}`);
-          
-          // ให้ความสำคัญกับลิงก์ที่มี cloud หรือ 9mod
-          if (href.includes('cloud') || href.includes('9mod')) {
-            directLink = href;
-            console.log(`[STEP 5.1] Selected cloud/9mod link: ${href}`);
-            return false; // หยุด loop
-          } else if (!directLink) {
-            directLink = href; // เก็บเป็น fallback
-          }
-        } else {
-          console.log(`[STEP 5.1] Excluded link (unwanted domain): ${href}`);
-        }
-      }
-    });
+    if (buttonHref && buttonHref.includes('.apk')) {
+      console.log(`[STEP 5.1] Found APK link in download button: ${buttonHref}`);
+      directLink = buttonHref;
+    } else {
+      console.log(`[STEP 5.1] No download button found or button has no APK link`);
+    }
     
-    // 2. หาจาก onclick, data-href, หรือ attributes อื่นๆ
+    // 2. หาลิงก์จาก <a> tag ที่มี .apk (fallback)
     if (!directLink) {
-      console.log(`[STEP 5.2] Searching in element attributes...`);
+      console.log(`[STEP 5.2] Searching for APK links in <a> tags...`);
+      const excludedDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com', 'instagram.com'];
+      
+      $$('a').each((i, el) => {
+        const href = $$(el).attr('href');
+        if (href && href.includes('.apk')) {
+          // ตรวจสอบว่าไม่ใช่ลิงก์ที่ไม่ต้องการ
+          const isExcluded = excludedDomains.some(domain => href.includes(domain));
+          
+          if (!isExcluded) {
+            console.log(`[STEP 5.2] Found APK link: ${href}`);
+            
+            // ให้ความสำคัญกับลิงก์ที่มี cloud หรือ 9mod
+            if (href.includes('cloud') || href.includes('9mod')) {
+              directLink = href;
+              console.log(`[STEP 5.2] Selected cloud/9mod link: ${href}`);
+              return false; // หยุด loop
+            } else if (!directLink) {
+              directLink = href; // เก็บเป็น fallback
+            }
+          } else {
+            console.log(`[STEP 5.2] Excluded link (unwanted domain): ${href}`);
+          }
+        }
+      });
+    }
+    
+    // 3. หาจาก onclick, data-href, หรือ attributes อื่นๆ
+    if (!directLink) {
+      console.log(`[STEP 5.3] Searching in element attributes...`);
       $$('[onclick], [data-href], [data-download], [data-url]').each((i, el) => {
         const onClick = $$(el).attr('onclick') || '';
         const dataHref = $$(el).attr('data-href') || '';
@@ -167,15 +181,15 @@ async function extractDownloadLink(pageUrl) {
         
         if (apkMatch) {
           directLink = apkMatch[1];
-          console.log(`[STEP 5.2] Found APK in attributes: ${directLink}`);
+          console.log(`[STEP 5.3] Found APK in attributes: ${directLink}`);
           return false;
         }
       });
     }
     
-    // 3. หาจาก JavaScript code
+    // 4. หาจาก JavaScript code
     if (!directLink) {
-      console.log(`[STEP 5.3] Searching in JavaScript code...`);
+      console.log(`[STEP 5.4] Searching in JavaScript code...`);
       const excludedDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com'];
       
       $$('script').each((i, el) => {
@@ -185,7 +199,7 @@ async function extractDownloadLink(pageUrl) {
         const apkMatches = scriptContent.match(/(https?:\/\/[^\s"']+\.apk[^\s"']*)/g);
         
         if (apkMatches && apkMatches.length > 0) {
-          console.log(`[STEP 5.3] Found ${apkMatches.length} APK links in scripts`);
+          console.log(`[STEP 5.4] Found ${apkMatches.length} APK links in scripts`);
           
           // กรองลิงก์ที่ไม่ต้องการออก
           const validLinks = apkMatches.filter(link => {
@@ -197,38 +211,38 @@ async function extractDownloadLink(pageUrl) {
             const cloudLink = validLinks.find(link => link.includes('cloud') || link.includes('9mod'));
             if (cloudLink) {
               directLink = cloudLink;
-              console.log(`[STEP 5.3] Selected cloud/9mod link: ${directLink}`);
+              console.log(`[STEP 5.4] Selected cloud/9mod link: ${directLink}`);
             } else {
               directLink = validLinks[0];
-              console.log(`[STEP 5.3] Selected first valid APK link: ${directLink}`);
+              console.log(`[STEP 5.4] Selected first valid APK link: ${directLink}`);
             }
             return false;
           } else {
-            console.log(`[STEP 5.3] All APK links were filtered out as unwanted`);
+            console.log(`[STEP 5.4] All APK links were filtered out as unwanted`);
           }
         }
       });
     }
     
-    // 4. หาจาก meta tags
+    // 5. หาจาก meta tags
     if (!directLink) {
-      console.log(`[STEP 5.4] Searching in meta tags...`);
+      console.log(`[STEP 5.5] Searching in meta tags...`);
       const metaUrl = $$('meta[property="og:url"]').attr('content') || 
                       $$('meta[name="download-url"]').attr('content');
       
       if (metaUrl && metaUrl.includes('.apk')) {
         directLink = metaUrl;
-        console.log(`[STEP 5.4] Found APK in meta tags: ${directLink}`);
+        console.log(`[STEP 5.5] Found APK in meta tags: ${directLink}`);
       }
     }
     
-    // 5. ถ้ายังหาไม่เจอ ลองสร้างลิงก์จาก pattern
+    // 6. ถ้ายังหาไม่เจอ ลองสร้างลิงก์จาก pattern
     if (!directLink) {
-      console.log(`[STEP 5.5] Attempting to construct download URL...`);
+      console.log(`[STEP 5.6] Attempting to construct download URL...`);
       
       // Pattern ที่เป็นไปได้: https://cloud.9mod.space/Spotify/Spotify%20vX.X.X.X%20(Premium).apk
       const constructedUrl = `https://cloud.9mod.space/Spotify/Spotify%20v${version}%20(Premium).apk`;
-      console.log(`[STEP 5.5] Constructed URL: ${constructedUrl}`);
+      console.log(`[STEP 5.6] Constructed URL: ${constructedUrl}`);
       
       // ลองตรวจสอบว่า URL นี้มีอยู่จริงหรือไม่
       try {
@@ -240,22 +254,23 @@ async function extractDownloadLink(pageUrl) {
         
         if (headResponse.status === 200) {
           directLink = constructedUrl;
-          console.log(`[STEP 5.5] Constructed URL is valid!`);
+          console.log(`[STEP 5.6] Constructed URL is valid!`);
         }
       } catch (error) {
-        console.log(`[STEP 5.5] Constructed URL is not accessible: ${error.message}`);
+        console.log(`[STEP 5.6] Constructed URL is not accessible: ${error.message}`);
       }
     }
     
-    // 6. Fallback: ใช้ intermediate link
+    // 7. Fallback: ใช้ intermediate link
     if (!directLink) {
-      console.log(`[STEP 5.6] No direct link found, using intermediate link as fallback`);
+      console.log(`[STEP 5.7] No direct link found, using intermediate link as fallback`);
       directLink = fullIntermediateLink;
     }
     
     // Clean up ลิงก์
-    const cleanLink = directLink.split('?')[0].trim();
-    console.log(`[STEP 6] Final clean link: ${cleanLink}`);
+    // NOTE: ไม่ลบ token parameter ออก เพราะอาจจำเป็นสำหรับการดาวน์โหลด
+    const cleanLink = directLink.trim();
+    console.log(`[STEP 6] Final link: ${cleanLink}`);
     
     // Validate: ตรวจสอบว่าลิงก์ที่ได้ไม่ใช่ Play Store หรือลิงก์ที่ไม่ถูกต้อง
     const invalidDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com'];
