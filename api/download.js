@@ -128,18 +128,27 @@ async function extractDownloadLink(pageUrl) {
     
     // 1. หาลิงก์จาก <a> tag ที่มี .apk
     console.log(`[STEP 5.1] Searching for APK links in <a> tags...`);
+    const excludedDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com', 'instagram.com'];
+    
     $$('a').each((i, el) => {
       const href = $$(el).attr('href');
       if (href && href.includes('.apk')) {
-        console.log(`[STEP 5.1] Found APK link: ${href}`);
+        // ตรวจสอบว่าไม่ใช่ลิงก์ที่ไม่ต้องการ
+        const isExcluded = excludedDomains.some(domain => href.includes(domain));
         
-        // ให้ความสำคัญกับลิงก์ที่มี cloud
-        if (href.includes('cloud') || href.includes('9mod')) {
-          directLink = href;
-          console.log(`[STEP 5.1] Selected cloud/9mod link: ${href}`);
-          return false; // หยุด loop
-        } else if (!directLink) {
-          directLink = href; // เก็บเป็น fallback
+        if (!isExcluded) {
+          console.log(`[STEP 5.1] Found APK link: ${href}`);
+          
+          // ให้ความสำคัญกับลิงก์ที่มี cloud หรือ 9mod
+          if (href.includes('cloud') || href.includes('9mod')) {
+            directLink = href;
+            console.log(`[STEP 5.1] Selected cloud/9mod link: ${href}`);
+            return false; // หยุด loop
+          } else if (!directLink) {
+            directLink = href; // เก็บเป็น fallback
+          }
+        } else {
+          console.log(`[STEP 5.1] Excluded link (unwanted domain): ${href}`);
         }
       }
     });
@@ -167,6 +176,8 @@ async function extractDownloadLink(pageUrl) {
     // 3. หาจาก JavaScript code
     if (!directLink) {
       console.log(`[STEP 5.3] Searching in JavaScript code...`);
+      const excludedDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com'];
+      
       $$('script').each((i, el) => {
         const scriptContent = $$(el).html() || '';
         
@@ -176,16 +187,25 @@ async function extractDownloadLink(pageUrl) {
         if (apkMatches && apkMatches.length > 0) {
           console.log(`[STEP 5.3] Found ${apkMatches.length} APK links in scripts`);
           
-          // ให้ความสำคัญกับลิงก์ที่มี cloud หรือ 9mod
-          const cloudLink = apkMatches.find(link => link.includes('cloud') || link.includes('9mod'));
-          if (cloudLink) {
-            directLink = cloudLink;
-            console.log(`[STEP 5.3] Selected cloud/9mod link: ${directLink}`);
+          // กรองลิงก์ที่ไม่ต้องการออก
+          const validLinks = apkMatches.filter(link => {
+            return !excludedDomains.some(domain => link.includes(domain));
+          });
+          
+          if (validLinks.length > 0) {
+            // ให้ความสำคัญกับลิงก์ที่มี cloud หรือ 9mod
+            const cloudLink = validLinks.find(link => link.includes('cloud') || link.includes('9mod'));
+            if (cloudLink) {
+              directLink = cloudLink;
+              console.log(`[STEP 5.3] Selected cloud/9mod link: ${directLink}`);
+            } else {
+              directLink = validLinks[0];
+              console.log(`[STEP 5.3] Selected first valid APK link: ${directLink}`);
+            }
+            return false;
           } else {
-            directLink = apkMatches[0];
-            console.log(`[STEP 5.3] Selected first APK link: ${directLink}`);
+            console.log(`[STEP 5.3] All APK links were filtered out as unwanted`);
           }
-          return false;
         }
       });
     }
@@ -236,6 +256,20 @@ async function extractDownloadLink(pageUrl) {
     // Clean up ลิงก์
     const cleanLink = directLink.split('?')[0].trim();
     console.log(`[STEP 6] Final clean link: ${cleanLink}`);
+    
+    // Validate: ตรวจสอบว่าลิงก์ที่ได้ไม่ใช่ Play Store หรือลิงก์ที่ไม่ถูกต้อง
+    const invalidDomains = ['play.google.com', 'apps.apple.com', 'facebook.com', 'twitter.com'];
+    const isInvalid = invalidDomains.some(domain => cleanLink.includes(domain));
+    
+    if (isInvalid) {
+      console.log(`[STEP 6] ERROR: Invalid download link detected (Play Store or other): ${cleanLink}`);
+      throw new Error('Could not find valid APK download link. Found invalid link: ' + cleanLink);
+    }
+    
+    // ตรวจสอบว่าลิงก์มี .apk จริงๆ หรือมี pattern ที่คาดหวัง
+    if (!cleanLink.includes('.apk') && !cleanLink.includes('download')) {
+      console.log(`[STEP 6] WARNING: Link may not be a direct APK download: ${cleanLink}`);
+    }
     
     return {
       version: version,
