@@ -1,7 +1,7 @@
 {
-  "name": "spotifyMod-api",
+  "name": "spotify-mod-api",
   "version": "1.0.0",
-  "description": "Spotify Mod API",
+  "description": "Spotify Mod API - Download link scraper",
   "scripts": {
     "dev": "vercel dev"
   },
