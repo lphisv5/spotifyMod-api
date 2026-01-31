@@ -1,18 +1,8 @@
 {
   "functions": {
     "api/download.js": {
-      "maxDuration": 30,
-      "memory": 1024
+      "maxDuration": 10,
+      "memory": 512
     }
-  },
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS" },
-        { "key": "Content-Type", "value": "application/json" }
-      ]
-    }
-  ]
+  }
 }
