@@ -9,6 +9,7 @@ const headers = {
   'Accept-Encoding': 'gzip, deflate, br',
   'Connection': 'keep-alive',
   'Upgrade-Insecure-Requests': '1',
+  'Referer': 'https://liteapks.com/',
   'Cache-Control': 'no-cache',
   'Pragma': 'no-cache'
 };
@@ -22,7 +23,7 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 นาที
 
 async function extractDownloadLink(pageUrl) {
   try {
-    console.log(`กำลังดึงข้อมูลจาก: ${pageUrl}`);
+    console.log(`[STEP 1] Fetching main page: ${pageUrl}`);
     
     // Step 1: ดึงหน้าเว็บหลัก
     const mainResponse = await axios.get(pageUrl, { headers, timeout: 10000 });
@@ -31,6 +32,7 @@ async function extractDownloadLink(pageUrl) {
     // Step 2: หาเวอร์ชั่นจาก h1
     const h1Element = $('h1.h5.font-weight-semibold');
     const h1Text = h1Element.text();
+    console.log(`[STEP 2] H1 text: ${h1Text}`);
     
     // ใช้ regex ที่แม่นยำกว่า
     const versionMatch = h1Text.match(/v(\d+(?:\.\d+)+)/) || 
@@ -42,14 +44,21 @@ async function extractDownloadLink(pageUrl) {
     }
     
     const version = versionMatch[1];
-    console.log(`Version found: ${version}`);
+    console.log(`[STEP 2] Version found: ${version}`);
     
-    // Step 3: หาลิงก์ intermediate
+    // Step 3: หาลิงก์ดาวน์โหลด
     const downloadBtn = $('a.btn.btn-light.btn-sm.btn-block.text-left.d-flex.align-items-center.px-3');
     const intermediateLink = downloadBtn.attr('href');
     
     if (!intermediateLink) {
-      throw new Error('No download link found.');
+      console.log('[STEP 3] No download button found, trying alternative selectors...');
+      
+      // ลองหาจาก selector อื่น
+      const altLink = $('a[href*="/download/"]').first().attr('href');
+      if (!altLink) {
+        throw new Error('No download link found.');
+      }
+      console.log(`[STEP 3] Found alternative link: ${altLink}`);
     }
     
     // สร้างลิงก์เต็มถ้าเป็น relative
@@ -57,65 +66,176 @@ async function extractDownloadLink(pageUrl) {
       ? intermediateLink 
       : `https://liteapks.com${intermediateLink}`;
     
-    console.log(`Intermediate link: ${fullIntermediateLink}`);
+    console.log(`[STEP 3] Intermediate link: ${fullIntermediateLink}`);
     
-    // Step 4: ติดตามลิงก์เพื่อหาลิงก์จริง
+    // Step 4: ติดตามลิงก์เพื่อหาหน้าดาวน์โหลด
+    console.log(`[STEP 4] Following intermediate link...`);
     const followResponse = await axios.get(fullIntermediateLink, { 
-      headers, 
+      headers: {
+        ...headers,
+        'Referer': pageUrl
+      }, 
       timeout: 15000,
-      maxRedirects: 5,
+      maxRedirects: 0,
       validateStatus: function (status) {
-        return status >= 200 && status < 400; // อนุญาต redirect
+        return status >= 200 && status < 400;
       }
+    }).catch(async (error) => {
+      // จัดการกรณี redirect
+      if (error.response && error.response.status >= 300 && error.response.status < 400) {
+        const redirectUrl = error.response.headers.location;
+        console.log(`[STEP 4] Redirect detected to: ${redirectUrl}`);
+        
+        if (redirectUrl && redirectUrl.includes('.apk')) {
+          console.log(`[STEP 4] Direct APK link found in redirect!`);
+          return {
+            data: '',
+            config: { url: redirectUrl }
+          };
+        }
+        
+        // ติดตาม redirect
+        return await axios.get(redirectUrl, {
+          headers: {
+            ...headers,
+            'Referer': fullIntermediateLink
+          },
+          timeout: 15000,
+          maxRedirects: 5
+        });
+      }
+      throw error;
     });
     
-    // ดึงลิงก์สุดท้ายจาก response
     const finalUrl = followResponse.request?.res?.responseUrl || followResponse.config.url;
-    console.log(`Final URL: ${finalUrl}`);
+    console.log(`[STEP 4] Final URL: ${finalUrl}`);
     
-    // Step 5: ดึงหน้าเว็บอีกครั้งเพื่อหาลิงก์ดาวน์โหลดจริง
-    const finalResponse = await axios.get(finalUrl, { headers, timeout: 10000 });
-    const $$ = cheerio.load(finalResponse.data);
+    // ถ้า finalUrl เป็นไฟล์ .apk แล้ว ให้ return เลย
+    if (finalUrl.includes('.apk')) {
+      console.log(`[STEP 5] Direct APK URL found: ${finalUrl}`);
+      return {
+        version: version,
+        linkDownload: finalUrl.split('?')[0],
+        timestamp: new Date().toISOString()
+      };
+    }
     
-    // ลองหาลิงก์ดาวน์โหลดจากหลายที่
+    // Step 5: Parse หน้าเว็บเพื่อหาลิงก์ดาวน์โหลดจริง
+    console.log(`[STEP 5] Parsing download page...`);
+    const $$ = cheerio.load(followResponse.data);
+    
     let directLink = null;
     
-    // 1. ลองหา link ที่มี .apk
-    $$('a[href*=".apk"]').each((i, el) => {
+    // 1. หาลิงก์จาก <a> tag ที่มี .apk
+    console.log(`[STEP 5.1] Searching for APK links in <a> tags...`);
+    $$('a').each((i, el) => {
       const href = $$(el).attr('href');
-      if (href && href.includes('cloud') && href.includes('Spotify')) {
-        directLink = href;
-        return false; // หยุด loop
+      if (href && href.includes('.apk')) {
+        console.log(`[STEP 5.1] Found APK link: ${href}`);
+        
+        // ให้ความสำคัญกับลิงก์ที่มี cloud
+        if (href.includes('cloud') || href.includes('9mod')) {
+          directLink = href;
+          console.log(`[STEP 5.1] Selected cloud/9mod link: ${href}`);
+          return false; // หยุด loop
+        } else if (!directLink) {
+          directLink = href; // เก็บเป็น fallback
+        }
       }
     });
     
-    // 2. ถ้าไม่เจอ ลองหา from JavaScript หรือ onclick
+    // 2. หาจาก onclick, data-href, หรือ attributes อื่นๆ
     if (!directLink) {
-      const scriptContent = $$('script').text();
-      const apkMatch = scriptContent.match(/(https?:\/\/[^"']+\.apk[^"']*)/);
-      if (apkMatch) {
-        directLink = apkMatch[1];
+      console.log(`[STEP 5.2] Searching in element attributes...`);
+      $$('[onclick], [data-href], [data-download], [data-url]').each((i, el) => {
+        const onClick = $$(el).attr('onclick') || '';
+        const dataHref = $$(el).attr('data-href') || '';
+        const dataDownload = $$(el).attr('data-download') || '';
+        const dataUrl = $$(el).attr('data-url') || '';
+        
+        const combined = onClick + dataHref + dataDownload + dataUrl;
+        const apkMatch = combined.match(/(https?:\/\/[^\s"']+\.apk[^\s"']*)/);
+        
+        if (apkMatch) {
+          directLink = apkMatch[1];
+          console.log(`[STEP 5.2] Found APK in attributes: ${directLink}`);
+          return false;
+        }
+      });
+    }
+    
+    // 3. หาจาก JavaScript code
+    if (!directLink) {
+      console.log(`[STEP 5.3] Searching in JavaScript code...`);
+      $$('script').each((i, el) => {
+        const scriptContent = $$(el).html() || '';
+        
+        // หา URL ที่มี .apk
+        const apkMatches = scriptContent.match(/(https?:\/\/[^\s"']+\.apk[^\s"']*)/g);
+        
+        if (apkMatches && apkMatches.length > 0) {
+          console.log(`[STEP 5.3] Found ${apkMatches.length} APK links in scripts`);
+          
+          // ให้ความสำคัญกับลิงก์ที่มี cloud หรือ 9mod
+          const cloudLink = apkMatches.find(link => link.includes('cloud') || link.includes('9mod'));
+          if (cloudLink) {
+            directLink = cloudLink;
+            console.log(`[STEP 5.3] Selected cloud/9mod link: ${directLink}`);
+          } else {
+            directLink = apkMatches[0];
+            console.log(`[STEP 5.3] Selected first APK link: ${directLink}`);
+          }
+          return false;
+        }
+      });
+    }
+    
+    // 4. หาจาก meta tags
+    if (!directLink) {
+      console.log(`[STEP 5.4] Searching in meta tags...`);
+      const metaUrl = $$('meta[property="og:url"]').attr('content') || 
+                      $$('meta[name="download-url"]').attr('content');
+      
+      if (metaUrl && metaUrl.includes('.apk')) {
+        directLink = metaUrl;
+        console.log(`[STEP 5.4] Found APK in meta tags: ${directLink}`);
       }
     }
     
-    // 3. ถ้ายังไม่เจอ ใช้ finalUrl เป็นลิงก์
-    if (!directLink && finalUrl.includes('.apk')) {
-      directLink = finalUrl;
+    // 5. ถ้ายังหาไม่เจอ ลองสร้างลิงก์จาก pattern
+    if (!directLink) {
+      console.log(`[STEP 5.5] Attempting to construct download URL...`);
+      
+      // Pattern ที่เป็นไปได้: https://cloud.9mod.space/Spotify/Spotify%20vX.X.X.X%20(Premium).apk
+      const constructedUrl = `https://cloud.9mod.space/Spotify/Spotify%20v${version}%20(Premium).apk`;
+      console.log(`[STEP 5.5] Constructed URL: ${constructedUrl}`);
+      
+      // ลองตรวจสอบว่า URL นี้มีอยู่จริงหรือไม่
+      try {
+        const headResponse = await axios.head(constructedUrl, { 
+          headers, 
+          timeout: 5000,
+          maxRedirects: 5
+        });
+        
+        if (headResponse.status === 200) {
+          directLink = constructedUrl;
+          console.log(`[STEP 5.5] Constructed URL is valid!`);
+        }
+      } catch (error) {
+        console.log(`[STEP 5.5] Constructed URL is not accessible: ${error.message}`);
+      }
     }
     
-    // 4. ถ้ายังไม่เจออีก ให้ใช้ intermediate link
+    // 6. Fallback: ใช้ intermediate link
     if (!directLink) {
+      console.log(`[STEP 5.6] No direct link found, using intermediate link as fallback`);
       directLink = fullIntermediateLink;
     }
     
-    // Step 6: Clean up ลิงก์
-    // ลบ token หรือ parameter ที่ไม่จำเป็น
-    const cleanLink = directLink.split('?')[0];
-    
-    // ถ้าลิงก์เป็น base64 encoded ให้ decode
-    if (cleanLink.includes('data-href') || cleanLink.includes('base64')) {
-      // ไม่ต้องทำอะไรในนี้
-    }
+    // Clean up ลิงก์
+    const cleanLink = directLink.split('?')[0].trim();
+    console.log(`[STEP 6] Final clean link: ${cleanLink}`);
     
     return {
       version: version,
@@ -124,7 +244,7 @@ async function extractDownloadLink(pageUrl) {
     };
     
   } catch (error) {
-    console.error('Error in extractDownloadLink:', error.message);
+    console.error('[ERROR] extractDownloadLink failed:', error.message);
     throw error;
   }
 }
@@ -134,7 +254,7 @@ async function getSpotifyData() {
     // ตรวจสอบ cache
     const now = Date.now();
     if (cache.data && (now - cache.timestamp) < CACHE_DURATION) {
-      console.log('ใช้ข้อมูลจาก cache');
+      console.log('[CACHE] Using cached data');
       return cache.data;
     }
     
@@ -147,14 +267,15 @@ async function getSpotifyData() {
       timestamp: now
     };
     
+    console.log('[CACHE] Data cached successfully');
     return data;
     
   } catch (error) {
-    console.error('Error getting Spotify data:', error.message);
+    console.error('[ERROR] getSpotifyData failed:', error.message);
     
     // ถ้า error แต่มี cache เก่า ให้ใช้ cache
     if (cache.data) {
-      console.log('ใช้ข้อมูลจาก cache (fallback)');
+      console.log('[CACHE] Using stale cache as fallback');
       return cache.data;
     }
     
@@ -181,7 +302,7 @@ module.exports = async (req, res) => {
   }
   
   try {
-    console.log('Begin retrieving Spotify Mod data...');
+    console.log('[API] Request received');
     
     // ดึงข้อมูล
     const spotifyData = await getSpotifyData();
@@ -194,7 +315,7 @@ module.exports = async (req, res) => {
       }
     };
     
-    console.log('ส่งข้อมูลสำเร็จ:', spotifyData.version);
+    console.log('[API] Success - Version:', spotifyData.version);
     
     // กำหนด Content-Type
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -203,7 +324,7 @@ module.exports = async (req, res) => {
     return res.status(200).json(response);
     
   } catch (error) {
-    console.error('API Error:', error.message);
+    console.error('[API] Error:', error.message);
     
     // Error response
     return res.status(500).json({
