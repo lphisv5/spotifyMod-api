@@ -1,8 +1,9 @@
 {
+  "version": 2,
   "functions": {
     "api/download.js": {
-      "maxDuration": 10,
-      "memory": 512
+      "maxDuration": 30,
+      "memory": 1024
     }
   }
 }
