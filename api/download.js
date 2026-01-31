@@ -38,18 +38,18 @@ async function extractDownloadLink(pageUrl) {
                         h1Text.match(/v(\d+\.\d+\.\d+)/);
     
     if (!versionMatch) {
-      throw new Error('ไม่พบเวอร์ชั่นในหน้าเว็บ');
+      throw new Error('No version found on the webpage.');
     }
     
     const version = versionMatch[1];
-    console.log(`พบเวอร์ชั่น: ${version}`);
+    console.log(`Version found: ${version}`);
     
     // Step 3: หาลิงก์ intermediate
     const downloadBtn = $('a.btn.btn-light.btn-sm.btn-block.text-left.d-flex.align-items-center.px-3');
     const intermediateLink = downloadBtn.attr('href');
     
     if (!intermediateLink) {
-      throw new Error('ไม่พบลิงก์ดาวน์โหลด');
+      throw new Error('No download link found.');
     }
     
     // สร้างลิงก์เต็มถ้าเป็น relative
@@ -181,7 +181,7 @@ module.exports = async (req, res) => {
   }
   
   try {
-    console.log('เริ่มดึงข้อมูล Spotify Mod...');
+    console.log('Begin retrieving Spotify Mod data...');
     
     // ดึงข้อมูล
     const spotifyData = await getSpotifyData();
@@ -207,7 +207,7 @@ module.exports = async (req, res) => {
     
     // Error response
     return res.status(500).json({
-      error: 'ไม่สามารถดึงข้อมูลได้',
+      error: 'Unable to retrieve data.',
       message: error.message,
       timestamp: new Date().toISOString()
     });
